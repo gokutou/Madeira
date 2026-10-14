@@ -87,8 +87,15 @@ jobs:
             -DLLVM_INCLUDE_TESTS=Off -DLLVM_INCLUDE_EXAMPLES=Off \
             -DLLVM_INCLUDE_BENCHMARKS=Off -DLLVM_INCLUDE_UTILS=Off \
             -DLLVM_ENABLE_TERMINFO=Off -DLLVM_ENABLE_LIBXML2=Off \
-            -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_ZLIB=Off
-          cmake --build toolchains/llvm-ios-build -j"$N"
+            -DLLVM_ENABLE_ZSTD=Off -DLLVM_ENABLE_ZLIB=Off \
+            -DLLVM_TOOL_LTO_BUILD=Off -DLLVM_TOOL_REMARKS_SHLIB_BUILD=Off
+          # Only the static libraries (lib/libLLVM*.a), which is all DXMT
+          # links. `all` also links tools and dylibs such as libLTO.dylib,
+          # whose -Wl,-z,defs Apple's ld rejects for an iOS target.
+          LIBS=$(ninja -C toolchains/llvm-ios-build -t targets all \
+                 | sed -n 's/^\(lib\/libLLVM[^:]*\.a\): .*/\1/p' | sort -u)
+          echo "building $(echo "$LIBS" | wc -l | tr -d ' ') static libraries"
+          ninja -C toolchains/llvm-ios-build -j"$N" $LIBS
 
           N_LIBS=$(ls toolchains/llvm-ios-build/lib/*.a | wc -l | tr -d ' ')
           echo "::notice::LLVM iOS: $N_LIBS static libraries"
