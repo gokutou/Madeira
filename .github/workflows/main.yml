@@ -306,8 +306,13 @@ jobs:
           N=$(sysctl -n hw.ncpu)
           LOG="$GITHUB_WORKSPACE/wine-native-make.log"
           # The host tools are what the cross tree needs; a failure is fatal.
-          if ! make -j"$N" __tools__ > "$LOG" 2>&1; then
-            echo "===== make __tools__ failed; errors ====="
+          # This Wine has no __tools__ target, so name every tools/X/X rule the
+          # generated Makefile has (widl, wrc, wmc, winebuild, winegcc, ...).
+          TOOLS=$(sed -n 's/^\(tools\/\([a-z0-9_]*\)\/\2\)[ :].*/\1/p' Makefile | sort -u)
+          echo "host tools: $TOOLS"
+          [ -n "$TOOLS" ] || { echo "::error::no tools/X/X rules in Makefile"; grep -m 10 '^tools/' Makefile; exit 1; }
+          if ! make -j"$N" $TOOLS > "$LOG" 2>&1; then
+            echo "===== make (host tools) failed; errors ====="
             grep -E -m 30 -B3 -A3 "error|Error [0-9]" "$LOG" || tail -60 "$LOG"
             exit 1
           fi
