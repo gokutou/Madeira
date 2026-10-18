@@ -178,7 +178,7 @@ jobs:
       - name: Build i386 Wine farm + DXMT i386
         if: steps.farm.outputs.cache-hit != 'true'
         run: |
-          set -o pipefail
+          set +e
           bash build/wine-i386/build.sh 2>&1 | tee wine-i386.log
           rc=${PIPESTATUS[0]}
           if [ "$rc" -ne 0 ]; then
@@ -464,9 +464,23 @@ jobs:
             app/Madeira/libavutil.a
           key: ffmpeg-ios-v1-${{ hashFiles('build/ffmpeg/build.sh', 'build/ffmpeg/src/SHA256SUMS') }}
 
+      # rusage_info_v6.ri_page_wait_time_mach is newer than the runner's
+      # iPhoneOS SDK; it only feeds the "pgw=" figure of the [xp] diagnostic
+      # log line, so it reads as 0 here.
+      - name: Patch server_ios.c for the runner's iOS SDK
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          if grep -q ri_page_wait_time_mach "$SDK/usr/include/sys/resource.h"; then
+            echo "SDK has ri_page_wait_time_mach; no patch needed"
+          else
+            sed -i '' 's/ru\.ri_page_wait_time_mach - pru\.ri_page_wait_time_mach/0/' build/ntdll-unix/server_ios.c
+            ! grep -n ri_page_wait_time_mach build/ntdll-unix/server_ios.c
+            echo "::notice::server_ios.c: ri_page_wait_time_mach reads as 0 (not in this SDK)"
+          fi
+
       - name: Build ntdll-unix
         run: |
-          set -o pipefail
+          set +e
           bash build/ntdll-unix/build.sh 2>&1 | tee ntdll.log
           rc=${PIPESTATUS[0]}
           for f in build/ntdll-unix/obj/*.err; do
