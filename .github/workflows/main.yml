@@ -294,7 +294,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: wine/build-native
-          key: wine-native-v1-${{ steps.rev.outputs.wine }}
+          key: wine-native-v2-${{ steps.rev.outputs.wine }}
 
       - name: Build native Wine tools and headers
         if: steps.winenative.outputs.cache-hit != 'true'
@@ -316,10 +316,13 @@ jobs:
             grep -E -m 30 -B3 -A3 "error|Error [0-9]" "$LOG" || tail -60 "$LOG"
             exit 1
           fi
-          # Headers here are only a fallback for the cross tree's own
-          # `make include`, so a failure is reported, not fatal.
-          if ! make -k -j"$N" include >> "$LOG" 2>&1; then
-            echo "::warning::native make include had failures (see wine-native-make.log)"
+          # Generated headers here are only a fallback for the cross tree's,
+          # so a failure is reported, not fatal. No `include` target in this
+          # Wine either: name every include/*.h rule of the Makefile.
+          HDRS=$(awk -F: '/^include\/[^ ]*\.h[ :]/ { n = split($1, t, " "); for (i = 1; i <= n; i++) if (t[i] ~ /^include\/.*\.h$/) print t[i] }' Makefile | sort -u)
+          echo "generated headers: $(echo "$HDRS" | wc -l | tr -d ' ')"
+          if ! make -k -j"$N" $HDRS >> "$LOG" 2>&1; then
+            echo "::warning::native header generation had failures (see wine-native-make.log)"
             grep -E -m 20 -B3 -A3 "error|Error [0-9]" "$LOG" || true
           fi
           for t in widl wrc wmc winebuild winegcc makedep; do
@@ -331,7 +334,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: wine/build-native
-          key: wine-native-v1-${{ steps.rev.outputs.wine }}
+          key: wine-native-v2-${{ steps.rev.outputs.wine }}
 
       - name: Configure wine/build-macos (iPhoneOS cross)
         run: |
@@ -353,7 +356,29 @@ jobs:
 
       - name: Generate headers and patch config.h for the iOS SDK
         run: |
-          make -C wine/build-macos include -j"$(sysctl -n hw.ncpu)" > make-include.log 2>&1 || true
+          # No `include` target in this Wine: name every include/*.h rule
+          # (the widl-generated headers such as dwrite.h).
+          HDRS=$(awk -F: '/^include\/[^ ]*\.h[ :]/ { n = split($1, t, " "); for (i = 1; i <= n; i++) if (t[i] ~ /^include\/.*\.h$/) print t[i] }' wine/build-macos/Makefile | sort -u)
+          echo "generated headers: $(echo "$HDRS" | wc -l | tr -d ' ')"
+          make -k -C wine/build-macos -j"$(sysctl -n hw.ncpu)" $HDRS > make-include.log 2>&1 || {
+            echo "::warning::cross header generation had failures; first errors:"
+            grep -E -m 20 -B3 -A3 "error|Error [0-9]" make-include.log || tail -30 make-include.log; }
+          # Fallback: any include/*.idl whose header make did not produce is run
+          # through the native widl directly, with the flags makedep uses.
+          WIDL="$GITHUB_WORKSPACE/wine/build-native/tools/widl/widl"
+          MADE=0; BAD=""
+          while IFS= read -r idl; do
+            rel="${idl#wine/}"; out="wine/build-macos/${rel%.idl}.h"
+            [ -f "$out" ] && continue
+            mkdir -p "$(dirname "$out")"
+            if "$WIDL" -o "$out" --nostdinc -Iwine/build-macos/include -Iwine/include -D__WINESRC__ -h "$idl" 2>>widl-fallback.log; then
+              MADE=$((MADE+1))
+            else
+              rm -f "$out"; BAD="$BAD ${rel}"
+            fi
+          done < <(find wine/include -name "*.idl" | sort)
+          echo "widl fallback: $MADE headers generated; failed:${BAD:- none}"
+          [ -z "$BAD" ] || head -20 widl-fallback.log
           cp -n wine/build-native/include/*.h wine/build-macos/include/ 2>/dev/null || true
           cat >> wine/build-macos/include/config.h <<'EOF'
 
@@ -385,7 +410,8 @@ jobs:
             mkdir -p wine/build-arm64ec
             ln -s ../build-macos/include wine/build-arm64ec/include
           fi
-          test -f wine/build-macos/include/dwrite.h
+          test -f wine/build-macos/include/dwrite.h || {
+            echo "::error::dwrite.h was not generated"; grep -m 5 'dwrite' wine/build-macos/Makefile; tail -30 make-include.log; exit 1; }
 
       - name: Build freetype (iOS)
         run: |
