@@ -632,6 +632,13 @@ jobs:
           name: i386-windows
           path: app/Madeira/i386-windows
 
+      # dockhost.exe is a build output; without it MadeiraDock.enabled is
+      # false and the app hides Madeira Dock and the Steam library with it.
+      - name: Build Madeira Dock (dockhost.exe)
+        run: |
+          bash build/madeira-dock/build.sh
+          test -f app/Madeira/arm64ec-windows/dockhost.exe
+
       # Referenced by the Xcode project but Microsoft's files are not tracked.
       # Left empty on purpose: Wine's own msvcp140/vcruntime140/ucrtbase in
       # the farm serve games that do not ship them.
