@@ -552,6 +552,7 @@ jobs:
             -DBUILD_TESTING=OFF -DBUILD_THUNKS=OFF -DBUILD_FEXCONFIG=OFF -DBUILD_FEX_LINUX_TESTS=OFF \
             -DENABLE_FEX_ALLOCATOR=OFF -DENABLE_ASSERTIONS=OFF \
             -DENABLE_CCACHE=OFF -DENABLE_LTO=OFF \
+            -DTUNE_CPU=none -DTUNE_ARCH=generic \
             -DCMAKE_DISABLE_FIND_PACKAGE_fmt=ON -DCMAKE_DISABLE_FIND_PACKAGE_xxHash=ON
           cmake --build FEX/build-ios -j"$(sysctl -n hw.ncpu)" \
             --target FEXCore FEXCore_Base JemallocLibs cephes_128bit softfloat_3e fmt xxhash
